@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Build artifacts
+build/obj/
+build/objfre_w2K_x86/
+build/buildfre_w2K_x86.*
+src/objfre_w2K_x86/
+src/buildfre_w2K_x86.*
+*.lib
+*.obj
+
+# IDE / Editor
+.vs/
+.vscode/
+*.suo
+*.user
+*.sln.docstates
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Test / scratch files
+test_*.obj
+test_*.dll
+test_*.asm
+test_*.c
+test_out.dll
+test_patched_hal.dll
+
+# Temporary / intermediate binaries
+hal_patched_v*.dll
+old_vdi_hal_backup.bin
+kdportinit_orig.bin
+hal_sub.bin
+
+# Package archives
+*.zip

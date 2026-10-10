@@ -1,0 +1,25 @@
+TARGETNAME=kdtransport
+TARGETTYPE=LIBRARY
+TARGETPATH=..\build\obj
+
+TARGETENV=W2K
+
+SOURCES= \
+    kdport_wrappers.c \
+    kdtransport_usb.c \
+    kdtransport_net.c
+
+INCLUDES=.;$(BASEDIR)\inc\w2k;$(BASEDIR)\inc\ddk\w2k;
+
+C_DEFINES= \
+    -DNTDDI_VERSION=0x05000000 \
+    -D_WIN32_WINNT=0x0500      \
+    -DWINVER=0x0500            \
+    -DPOOL_TAGGING             \
+    -D_NTHAL_
+
+MSC_WARNING_LEVEL=/W3 /WX-
+
+BUFFER_OVERFLOW_CHECKS=0
+NO_BROWSER_FILE=1
+NO_BINPLACE=1
