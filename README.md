@@ -21,7 +21,7 @@ Traditionally, Windows 2000 only supported kernel debugging through legacy 11520
 - [Architecture Overview](#architecture-overview)
 - [Why `kdbridge.py` is Required](#why-kdbridgepy-is-required)
 - [Hardware & Virtualization Matrix](#hardware--virtualization-matrix)
-- [Beginner's Step-by-Step Guide: VirtualBox](#beginners-step-by-step-guide-virtualbox)
+- [Step-by-Step Guide: VirtualBox](#step-by-step-guide-virtualbox)
   - [Step 1: Configure VirtualBox VM Settings](#step-1-configure-virtualbox-vm-settings)
   - [Step 2: Configure `boot.ini` on Windows 2000](#step-2-configure-bootini-on-windows-2000)
   - [Step 3: Deploy the Patched HAL](#step-3-deploy-the-patched-hal)
@@ -114,7 +114,7 @@ Beginners often ask: *“Can WinDbg talk directly to the VirtualBox UDP tunnel w
 
 ---
 
-## Beginner's Step-by-Step Guide: VirtualBox
+## Step-by-Step Guide: VirtualBox
 
 This walkthrough guides you from zero to a live debugging session on VirtualBox.
 
@@ -269,6 +269,10 @@ The bridge terminal will immediately output:
 ---
 
 ## Graphical Bridge Monitor (`kdbridge_gui.py`)
+
+<p align="center">
+  <img src="docs/images/bridge_gui.png" alt="KDTransport Network Bridge GUI Monitor" width="800"/>
+</p>
 
 For a visual, all-in-one experience, KDTransport includes a full **graphical bridge** built with Tkinter. It replaces the command-line `kdbridge.py` with a real-time GUI dashboard.
 
