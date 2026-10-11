@@ -489,26 +489,6 @@ python scratch\make_floppy.py
 ```
 Outputs `deploy_hal.img` ready for mounting.
 
----
-
-## Git & Contribution Setup
-
-Contributions, bug reports, and hardware testing feedback are warmly welcomed!
-
-### Verified Community Credentials
-```ini
-user.name  = Win2000DevCommunity
-user.email = win2000.dev.community@gmail.com
-```
-
-To configure these credentials in your local git repository:
-```cmd
-git config user.name "Win2000DevCommunity"
-git config user.email "win2000.dev.community@gmail.com"
-```
-
----
-
 ## Repository Structure
 
 ```
