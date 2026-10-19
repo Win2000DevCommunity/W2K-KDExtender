@@ -37,11 +37,11 @@
 
 /* EHCI capability registers (memory-mapped, read-only) */
 typedef struct _EHCI_CAP_REGS {
-    UCHAR  CapLength;        /* low byte of HcCapBase -- length of this cap block, i.e. offset to operational regs */
-    UCHAR  Reserved;
-    USHORT HciVersion;
-    ULONG  HcsParams;        /* bits 0-3 = N_PORTS, bits 20-23 = debug port number */
-    ULONG  HccParams;
+    volatile UCHAR  CapLength;        /* low byte of HcCapBase -- length of this cap block, i.e. offset to operational regs */
+    volatile UCHAR  Reserved;
+    volatile USHORT HciVersion;
+    volatile ULONG  HcsParams;        /* bits 0-3 = N_PORTS, bits 20-23 = debug port number */
+    volatile ULONG  HccParams;
 } EHCI_CAP_REGS, *PEHCI_CAP_REGS;
 
 #define EHCI_HCS_N_PORTS(p)     ((p) & 0xF)
@@ -49,16 +49,16 @@ typedef struct _EHCI_CAP_REGS {
 
 /* EHCI operational registers (memory-mapped, base = cap regs + CapLength) */
 typedef struct _EHCI_OP_REGS {
-    ULONG Command;
-    ULONG Status;
-    ULONG IntrEnable;
-    ULONG FrameIndex;
-    ULONG SegmentSelector;
-    ULONG FrameListBase;
-    ULONG AsyncListAddr;
-    ULONG Reserved[9];
-    ULONG ConfigFlag;
-    ULONG PortStatus[1];   /* [0] is port 1 -- indexed as PortStatus[port - 1] */
+    volatile ULONG Command;
+    volatile ULONG Status;
+    volatile ULONG IntrEnable;
+    volatile ULONG FrameIndex;
+    volatile ULONG SegmentSelector;
+    volatile ULONG FrameListBase;
+    volatile ULONG AsyncListAddr;
+    volatile ULONG Reserved[9];
+    volatile ULONG ConfigFlag;
+    volatile ULONG PortStatus[1];   /* [0] is port 1 -- indexed as PortStatus[port - 1] */
 } EHCI_OP_REGS, *PEHCI_OP_REGS;
 
 #define EHCI_CMD_RUN    0x00000001
@@ -74,11 +74,11 @@ typedef struct _EHCI_OP_REGS {
 /* The debug port's own register block -- location is NOT fixed, it's given
    by the PCI debug-port capability DWORD (bar selector + MMIO offset). */
 typedef struct _EHCI_DBGP_REGS {
-    ULONG Control;
-    ULONG Pids;
-    ULONG Address;
-    ULONG Data03;
-    ULONG Data47;
+    volatile ULONG Control;
+    volatile ULONG Pids;
+    volatile ULONG Address;
+    volatile ULONG Data03;
+    volatile ULONG Data47;
 } EHCI_DBGP_REGS, *PEHCI_DBGP_REGS;
 
 #define DBGP_CTRL_OWNER    0x40000000
@@ -133,13 +133,13 @@ typedef struct _USB_DEBUG_DESCRIPTOR {
    AsULONG=0xb=11 = (11 & 0x1F) | (0 << 5). Previous macro had these
    reversed and was wrong for any non-zero function number. */
 
-static PEHCI_CAP_REGS  EhciCaps;
-static PEHCI_OP_REGS   EhciOps;
-static PEHCI_DBGP_REGS EhciDbg;
-static ULONG           DbgpPort;          /* 1-based physical port number */
-static UCHAR           DbgpEndpointOut;
-static UCHAR           DbgpEndpointIn;
-static UCHAR           DbgpDataToggleOut = USB_PID_DATA1;   /* flips each OUT, per spec */
+static volatile EHCI_CAP_REGS  *EhciCaps;
+static volatile EHCI_OP_REGS   *EhciOps;
+static volatile EHCI_DBGP_REGS *EhciDbg;
+static ULONG                    DbgpPort;          /* 1-based physical port number */
+static UCHAR                    DbgpEndpointOut;
+static UCHAR                    DbgpEndpointIn;
+static UCHAR                    DbgpDataToggleOut = USB_PID_DATA1;   /* flips each OUT, per spec */
 
 /* Direct PCI Configuration Mechanism #1 (ports 0xCF8 / 0xCFC).
  * Phase-0 safe: does NOT call HalGetBusDataByOffset. */
@@ -154,6 +154,13 @@ static __forceinline UCHAR PciReadConfig8(ULONG Bus, ULONG Slot, ULONG Func, ULO
 {
     ULONG val = PciReadConfig32(Bus, Slot, Func, Offset);
     return (UCHAR)((val >> ((Offset & 3) * 8)) & 0xFF);
+}
+
+static __forceinline VOID PciWriteConfig16(ULONG Bus, ULONG Slot, ULONG Func, ULONG Offset, USHORT Value)
+{
+    ULONG address = 0x80000000UL | ((Bus & 0xFF) << 16) | ((Slot & 0x1F) << 11) | ((Func & 0x7) << 8) | (Offset & 0xFC);
+    WRITE_PORT_ULONG((PULONG)0xCF8, address);
+    WRITE_PORT_USHORT((PUSHORT)(0xCFC + (Offset & 2)), Value);
 }
 
 /*
@@ -259,6 +266,14 @@ UsbInitialize(
         return FALSE;   /* I/O-space BAR, not the simple 32-bit MMIO case handled here */
     }
 
+    /* Ensure Memory Space (bit 1) and Bus Master (bit 2) are enabled in PCI Command register */
+    {
+        ULONG cmd = PciReadConfig32(bus, slot, func, 0x04);
+        if ((cmd & 0x06) != 0x06) {
+            PciWriteConfig16(bus, slot, func, 0x04, (USHORT)(cmd | 0x06));
+        }
+    }
+
 
     EhciCaps = (PEHCI_CAP_REGS)MapPhysicalMemory(barValue & ~0xFUL, 0x1000);
     if (EhciCaps == NULL) {
@@ -297,17 +312,13 @@ UsbInitialize(
         return FALSE;
     }
 
-    /* Wait for the debug cable's far end to show up, then reset that port
-       so it belongs to the debug controller rather than a normal driver. */
+    /* Reset the port if a device is attached, or directly claim for virtual DBGP */
     for (loop = 300; !(EhciOps->Status & EHCI_STS_PORT_CHANGE) && loop; loop--) {
         ;
     }
     EhciOps->PortStatus[DbgpPort - 1] = (EhciOps->PortStatus[DbgpPort - 1] & ~EHCI_PORT_ENABLE) | EHCI_PORT_RESET;
     for (loop = 50000; (EhciOps->PortStatus[DbgpPort - 1] & EHCI_PORT_RESET) && loop; loop--) {
         ;
-    }
-    if (!(EhciOps->PortStatus[DbgpPort - 1] & EHCI_PORT_CONNECT)) {
-        return FALSE;   /* nothing plugged in */
     }
 
     EhciDbg->Control |= DBGP_CLAIM;
@@ -359,7 +370,6 @@ DbgpRunTransaction(IN ULONG DevNum, IN ULONG Endpoint, IN ULONG Token, IN ULONG 
 retry:
     EhciDbg->Address = DBGP_EPADDR(DevNum, Endpoint);
 
-    pids = DBGP_PID_GET(EhciDbg->Pids);
     if (Token == USB_PID_OUT) {
         DbgpDataToggleOut ^= (USB_PID_DATA1 ^ USB_PID_DATA0);   /* flip DATA0/DATA1 each OUT, per spec */
         pids = DBGP_PID_SET(DbgpDataToggleOut, Token);
@@ -369,7 +379,7 @@ retry:
     EhciDbg->Pids = pids;
 
     ctrl = DBGP_CTRL_SET_LEN(EhciDbg->Control, Size);
-    ctrl = (Token == USB_PID_OUT) ? (ctrl | DBGP_CTRL_OUT) : (ctrl & ~(ULONG)DBGP_CTRL_OUT);
+    ctrl = (Token == USB_PID_OUT || Token == USB_PID_SETUP) ? (ctrl | DBGP_CTRL_OUT) : (ctrl & ~(ULONG)DBGP_CTRL_OUT);
     ctrl |= DBGP_CTRL_GO;
     EhciDbg->Control = ctrl;
 
@@ -397,22 +407,32 @@ retry:
 static LONG
 UsbBulkWrite(IN ULONG DevNum, IN ULONG Endpoint, IN PCHAR Bytes, IN ULONG Size)
 {
+    ULONG d03 = 0, d47 = 0;
     if (Size > DBGP_MAX_PACKET) {
         return -1;
     }
-    EhciDbg->Data03 = *(PULONG)(Bytes);
-    EhciDbg->Data47 = (Size > 4) ? *(PULONG)(Bytes + 4) : 0;
+    if (Size > 0) {
+        RtlCopyMemory(&d03, Bytes, (Size > 4) ? 4 : Size);
+    }
+    if (Size > 4) {
+        RtlCopyMemory(&d47, Bytes + 4, Size - 4);
+    }
+    EhciDbg->Data03 = d03;
+    EhciDbg->Data47 = d47;
     return DbgpRunTransaction(DevNum, Endpoint, USB_PID_OUT, Size);
 }
 
 static LONG
 UsbBulkRead(IN ULONG DevNum, IN ULONG Endpoint, OUT PVOID Data, IN ULONG Size, IN LONG Loops)
 {
+    ULONG d03, d47;
     LONG ret = DbgpRunTransaction(DevNum, Endpoint, USB_PID_IN, Size);
     if (ret > 0) {
-        ((PULONG)Data)[0] = EhciDbg->Data03;
-        if (Size > 4) {
-            ((PULONG)Data)[1] = EhciDbg->Data47;
+        d03 = EhciDbg->Data03;
+        d47 = EhciDbg->Data47;
+        RtlCopyMemory(Data, &d03, (ret > 4) ? 4 : ret);
+        if (ret > 4) {
+            RtlCopyMemory((PUCHAR)Data + 4, &d47, ret - 4);
         }
     }
     UNREFERENCED_PARAMETER(Loops);   /* retry budget is DbgpRunTransaction's own DBGP_LOOPS today, not per-call yet */
@@ -435,8 +455,9 @@ UsbControlMessage(IN ULONG DevNum, IN BOOLEAN DirectionIn, IN UCHAR Request,
     setupPacket[6] = (UCHAR)(Size & 0xFF);
     setupPacket[7] = (UCHAR)(Size >> 8);
 
-    EhciDbg->Pids = DBGP_PID_SET(USB_PID_DATA0, USB_PID_SETUP);   /* SETUP stage is always DATA0 */
-    ret = UsbBulkWrite(DevNum, 0, (PCHAR)setupPacket, sizeof(setupPacket));
+    EhciDbg->Data03 = *(PULONG)(setupPacket);
+    EhciDbg->Data47 = *(PULONG)(setupPacket + 4);
+    ret = DbgpRunTransaction(DevNum, 0, USB_PID_SETUP, sizeof(setupPacket));
     if (ret < 0) {
         return ret;
     }

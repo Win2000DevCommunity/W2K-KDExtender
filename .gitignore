@@ -18,6 +18,7 @@ src/buildfre_w2K_x86.*
 *.suo
 *.user
 *.sln.docstates
+*.code-workspace
 
 # OS files
 Thumbs.db
@@ -37,6 +38,62 @@ hal_patched_v*.dll
 old_vdi_hal_backup.bin
 kdportinit_orig.bin
 hal_sub.bin
+temp_code.bin
+dbg_trans.bin
+halmacpi_test.dll
 
 # Package archives
 *.zip
+
+# Screenshots & screen captures (test artifacts)
+*.ppm
+boot_*.png
+screen_*.png
+newvm_screen.png
+classic_wb_*.png
+windbgx_*.png
+test1_*.png
+test2_*.png
+
+# Log files (test session outputs)
+kd_*.log
+windbg_classic.log
+
+# HAL backup dumps
+backup_hal_*.bin
+
+# Test & debug Python scripts (not part of core package)
+test_*.py
+verify_*.py
+boot_newvm_to_desktop.py
+run_both_debugger_tests.py
+run_debug_test.py
+run_kd_inspection.py
+run_kd_stdin.py
+exec_kd_commands.py
+interact_kd.py
+live_kd_session.py
+send_kd_commands_interactive.py
+test_kd_remote.py
+test_pc_kd.py
+auto_kd_usb.py
+
+# Debug command text files
+debug_cmds.txt
+kd_commands.txt
+
+# Intermediate HAL binaries (keep only halmacpi_fixed.dll and hal.dll)
+hal_new.dll
+hal_patched_newvm.dll
+halmacpi_from_new_vm.dll
+halmacpi_original.dll
+
+# Scratch directory
+scratch/
+
+# Disk image deployment (large binaries)
+deploy_to_newvm.py
+
+# Build output binaries (generated from source)
+build/HAL.DLL
+build/iso_root/

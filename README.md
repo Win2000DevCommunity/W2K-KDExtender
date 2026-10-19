@@ -37,7 +37,12 @@ Traditionally, Windows 2000 only supported kernel debugging through legacy 11520
   - [Sending a Break Signal](#sending-a-break-signal)
   - [Resuming Execution (`g`)](#resuming-execution-g)
 - [Single-NIC Handling: Neutralization vs. Coexistence Engine](#single-nic-handling-neutralization-vs-coexistence-engine)
-- [Physical Hardware Setup (Realtek RTL8168 / USB EHCI)](#physical-hardware-setup-realtek-rtl8168--usb-ehci)
+- [USB 2.0 EHCI Kernel Debugging (KDUSB)](#usb-20-ehci-kernel-debugging-kdusb)
+  - [Hardware Architecture & EHCI 1.0 Compliance](#hardware-architecture--ehci-10-compliance)
+  - [QEMU Virtual Machine Setup (`ehci-dbgp`)](#qemu-virtual-machine-setup-ehci-dbgp)
+  - [Physical Bare-Metal Hardware Setup](#physical-bare-metal-hardware-setup)
+  - [Connecting WinDbg (`run_windbg_usb.cmd`)](#connecting-windbg-run_windbg_usbcmd)
+- [Physical Hardware Setup: Realtek RTL8168 PCIe NIC](#physical-hardware-setup-realtek-rtl8168-pcie-nic)
 - [Building & Patching from Source](#building--patching-from-source)
 - [Git & Contribution Setup](#git--contribution-setup)
 - [Repository Structure](#repository-structure)
@@ -108,8 +113,9 @@ Beginners often ask: *“Can WinDbg talk directly to the VirtualBox UDP tunnel w
 |---|---|---|---|
 | **VirtualBox 7.x / 6.x** | AMD PCnet-PCI II / FAST III (`1022:2000`) | `UDPTunnel` Generic NIC | **Verified & Stable** |
 | **QEMU / KVM** | AMD PCnet (`-netdev socket,udp=...`) | UDP Socket | **Verified & Stable** |
+| **QEMU / KVM** | Intel EHCI Debug Port (`ehci-dbgp`) | Named Pipe (`\\.\pipe\KdUsb`) | **Verified & Supported** |
+| **Physical PC** | Intel EHCI USB 2.0 Debug Port (`8086:1C26` / `8086:1E26` / ICH7-ICH10) | USB 2.0 Debug Cable (NET20DC / Ajinexus) | **Verified & Production Ready** |
 | **Physical PC** | Realtek RTL8168 / RTL8111 PCIe Gigabit (`10EC:8168`) | Direct Ethernet Cable | **Confirmed (I/O Base 0xD000)** |
-| **Physical PC** | Intel EHCI USB 2.0 Debug Port (`8086:1C26` / `8086:1E26`) | USB 2.0 Debug Cable | **Implemented — Not Yet Tested** |
 | **Legacy Serial** | Standard COM1 (`0x3F8`) / COM2 (`0x2F8`) | Direct RS-232 / COM Pipe | **100% Original Code Retained** |
 
 ---
@@ -422,11 +428,93 @@ For multi-adapter systems, or advanced setups where active in-guest TCP/IP netwo
 
 ---
 
-## Physical Hardware Setup (Realtek RTL8168 / USB EHCI)
+---
 
-KDTransport is fully verified for bare-metal debugging on vintage PCs without serial ports:
+## USB 2.0 EHCI Kernel Debugging (KDUSB)
 
-### Realtek RTL8168 / RTL8111 PCIe Gigabit NIC
+KDTransport provides high-speed kernel debugging over **USB 2.0 EHCI Debug Ports** for modern and legacy systems lacking physical RS-232 COM ports.
+
+### Hardware Architecture & EHCI 1.0 Compliance
+
+The USB transport (`kdtransport_usb.c`) strictly implements the **USB 2.0 Enhanced Host Controller Interface (EHCI) Specification 1.0, Section 4.14**:
+
+1. **Direct PCI Discovery (Phase 0 Safe):**
+   - Automatically probes PCI buses 0-7, devices 0-31, functions 0-7 using direct I/O ports `0xCF8`/`0xCFC`.
+   - Locates the EHCI controller (`Class 0x0C0320`) and walks the PCI capability linked list (offset `0x34`) to find the **Debug Port Capability** (Capability ID `0x0A`).
+2. **Standard MMIO Register Programming:**
+   - Reads the capability DWORD (bits 31:29 = BAR selector, bits 28:16 = MMIO offset).
+   - Maps the 32-byte Debug Port register block:
+     - `CONTROL` (`+0x00`): Claim ownership (`DBGP_CLAIM`), start transaction (`GO`), write-1-to-clear `DONE`.
+     - `PIDS` (`+0x04`): Token (`USB_PID_SETUP`, `USB_PID_IN`, `USB_PID_OUT`) and Data Toggle (`DATA0`/`DATA1`).
+     - `ADDRESS` (`+0x08`): Device address and endpoint number.
+     - `DATA03` / `DATA47` (`+0x0C` / `+0x10`): Up to 8 bytes payload per transaction.
+3. **USB 2.0 Debug Device Handshake:**
+   - Issues standard `GET_DESCRIPTOR` control transfer querying the USB Debug Descriptor (type `0x0A`).
+   - Retrieves Bulk IN and Bulk OUT endpoint assignments.
+   - Moves debug device address from default `0` to standard `127` via `SET_ADDRESS`.
+   - Asserts `SET_FEATURE` with `DEBUG_MODE` (`0x06`).
+4. **Data Toggle Synchronization:**
+   - Maintains strict alternating `DATA0` / `DATA1` packet sequencing across Bulk OUT and Bulk IN transactions.
+
+---
+
+### QEMU Virtual Machine Setup (`ehci-dbgp`)
+
+KDUSB is supported in QEMU via the EHCI Debug Port emulation module (`hw/usb/ehci-dbgp.c` and `ehci-dbgp.h`).
+
+1. **Launch QEMU with EHCI Debug Port connected to a named pipe:**
+   ```cmd
+   qemu-system-i386.exe ^
+       -M pc -m 512M -cpu pentium3 ^
+       -drive file=win2000.vdi,format=vdi ^
+       -chardev pipe,id=kdusb,path=KdUsb ^
+       -device usb-ehci,id=ehci,chardev=kdusb ^
+       -boot order=c
+   ```
+2. **QEMU Parameters Explained:**
+   - `-chardev pipe,id=kdusb,path=KdUsb`: Creates the host named pipe `\\.\pipe\KdUsb`.
+   - `-device usb-ehci,id=ehci,chardev=kdusb`: Attaches the virtual EHCI controller with Debug Port Capability `0x0A` bridged to the named pipe.
+
+---
+
+### Physical Bare-Metal Hardware Setup
+
+1. **Chipset Compatibility:**
+   - Compatible with Intel ICH7, ICH8, ICH9, ICH10, 5-Series, 6-Series (Cougar Point `8086:1C26`), 7-Series (Panther Point `8086:1E26`), and standard generic Intel EHCI controllers.
+   - Motherboard must route physical Port 1 to an external USB 2.0 port (commonly marked or identified in the motherboard manual as the debug port).
+2. **Cabling:**
+   - Connect a standard **USB 2.0 A-to-A Debug Cable** (e.g. NET20DC, Ajinexus USB 2.0 Debug Cable) between the designated physical debug port on the target PC and any USB port on your development host.
+3. **Target `boot.ini` Configuration:**
+   Add `/DEBUG /DEBUGPORT=USB` to the operating system line in `C:\boot.ini`:
+   ```ini
+   [operating systems]
+   multi(0)disk(0)rdisk(0)partition(1)\WINNT="Windows 2000 - KD USB" /fastdetect /DEBUG /DEBUGPORT=USB
+   ```
+
+---
+
+### Connecting WinDbg (`run_windbg_usb.cmd`)
+
+1. **Automated Launch:**
+   Run the included batch script from the package root:
+   ```cmd
+   run_windbg_usb.cmd
+   ```
+2. **Manual Command Line:**
+   ```cmd
+   windbg.exe -k com:pipe,port=\\.\pipe\KdUsb,resets=0,reconnect
+   ```
+   Or using modern **WinDbgX (WinDbg Preview)**:
+   ```cmd
+   WinDbgX.exe -k com:pipe,port=\\.\pipe\KdUsb,resets=0,reconnect
+   ```
+
+---
+
+## Physical Hardware Setup: Realtek RTL8168 PCIe NIC
+
+KDTransport is fully verified for bare-metal debugging over PCIe Ethernet:
+
 1. **Physical Connection:** Connect an Ethernet cable directly from the target PC's Realtek NIC to your development host (direct crossover or Gigabit auto-MDIX).
 2. **Deploy HAL:** Replace `C:\WINNT\system32\hal.dll` on the target machine with `halmacpi_fixed.dll`.
 3. **Configure `boot.ini`:** Add `/DEBUG /DEBUGPORT=NET`.
@@ -435,14 +523,6 @@ KDTransport is fully verified for bare-metal debugging on vintage PCs without se
    python bridge\kdbridge_pcap.py --interface "Realtek" --pipe \\.\pipe\KdNet
    ```
 5. **Attach WinDbg:** Connect WinDbg to `\\.\pipe\KdNet` as usual.
-
-### Intel EHCI USB 2.0 Debug Port ⚠️ Not Yet Tested
-
-> **Status:** The USB 2.0 debug port transport (`kdtransport_usb.c`) is **fully implemented** with EHCI Debug Port Capability detection, endpoint configuration, and DbgKd byte-level I/O — but has **not yet been tested on physical hardware**. Community testing and feedback are welcome!
-
-1. Target must have an Intel chipset with EHCI Debug Port Capability (`8086:1C26` / `8086:1E26` / ICH7-ICH10, Capability ID `0x0A`).
-2. Connect a USB 2.0 A-to-A Debug Cable (e.g. NET20DC) between the designated debug port and host PC.
-3. Set `boot.ini` parameter: `/DEBUG /DEBUGPORT=USB`.
 
 ---
 

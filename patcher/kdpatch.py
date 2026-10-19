@@ -386,9 +386,9 @@ def patch_halmacpi(orig_path, lib_path, out_path):
         sys.exit("ERROR: No COFF objects found in library. Re-run the DDK build.")
     print(f"  Found {len(objs)} COFF object(s).")
 
-    # Reserve the first 4 KB of our section for trampolines and stubs.
-    # Transport code starts at new_sect_va + 0x1000.
-    transport_va = new_sect_va + 0x1000
+    # Reserve bytes at head of our section for trampolines and stubs.
+    TRAMP_SIZE = 0x200
+    transport_va = new_sect_va + TRAMP_SIZE
     print(f"  Linking transport code at VA {transport_va:#010x} ...")
     transport_bin, symbol_va, dir32_rvas = link_objs(objs, transport_va, HAL_BASE)
     print(f"  Linked: {len(transport_bin)} bytes, {len(symbol_va)} symbols, {len(dir32_rvas)} DIR32 fixups.")
@@ -407,8 +407,8 @@ def patch_halmacpi(orig_path, lib_path, out_path):
     override_va = symbol_va[override_sym]
     print(f"  KdpTransportInitOverride ({override_sym}) at VA {override_va:#010x}")
 
-    # ── Build trampoline region (0x1000 bytes at new_sect_va) ──
-    tramp_region = bytearray(0x1000)
+    # ── Build trampoline region (TRAMP_SIZE bytes at new_sect_va) ──
+    tramp_region = bytearray(TRAMP_SIZE)
     tramp_reloc_rvas = []   # RVAs of absolute addresses in trampoline stubs
 
     # KdActiveTransport VA (global in our code)
@@ -490,9 +490,15 @@ def patch_halmacpi(orig_path, lib_path, out_path):
 
     # ── Assemble the full new section ──
     new_sect_data = bytes(tramp_region) + transport_bin
-    raw_size = _align(len(new_sect_data), file_align)
-    virt_size = len(new_sect_data)
-    new_sect_data = new_sect_data.ljust(raw_size, b'\x00')
+    TARGET_KDTRANS_SIZE = 0x51A0
+    if len(new_sect_data) <= TARGET_KDTRANS_SIZE:
+        virt_size = TARGET_KDTRANS_SIZE
+        raw_size = TARGET_KDTRANS_SIZE
+        new_sect_data = new_sect_data.ljust(raw_size, b'\x00')
+    else:
+        raw_size = _align(len(new_sect_data), file_align)
+        virt_size = len(new_sect_data)
+        new_sect_data = new_sect_data.ljust(raw_size, b'\x00')
 
     # ── Patch the original binary ──
     # 1. CpInitialize call site -> KdpTransportInitOverride
