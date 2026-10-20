@@ -43,7 +43,7 @@ Traditionally, Windows 2000 only supported kernel debugging through legacy 11520
   - [Physical Bare-Metal Hardware Setup](#physical-bare-metal-hardware-setup)
   - [Connecting WinDbg (`run_windbg_usb.cmd`)](#connecting-windbg-run_windbg_usbcmd)
 - [Physical Hardware Setup: Realtek RTL8168 PCIe NIC](#physical-hardware-setup-realtek-rtl8168-pcie-nic)
-- [Windows XP HAL (NT 5.1 HALMACPI.DLL) on Windows 2000](#windows-xp-hal-nt-51-halmacpidll-on-windows-2000)
+- [Patching the Windows XP HAL (NT 5.1 HALMACPI.DLL)](#patching-the-windows-xp-hal-nt-51-halmacpidll)
 - [Multi-HAL Support & Validation Matrix](#multi-hal-support--validation-matrix)
 - [Building & Patching from Source](#building--patching-from-source)
 - [Git & Contribution Setup](#git--contribution-setup)
@@ -528,14 +528,14 @@ KDTransport is fully verified for bare-metal debugging over PCIe Ethernet:
 
 ---
 
-## Windows XP HAL (NT 5.1 HALMACPI.DLL) on Windows 2000
+## Patching the Windows XP HAL (NT 5.1 HALMACPI.DLL)
 
-In addition to supporting all 6 authentic Windows 2000 SP4 HAL variants (`hal.dll`, `halaacpi.dll`, `halacpi.dll`, `halapic.dll`, `halmacpi_original.dll`, `halmps.dll`), KDTransport includes dedicated, isolated support for booting and debugging the **Windows XP ACPI Multiprocessor HAL (`NT 5.1 HALMACPI.DLL`)** on Windows 2000 Professional SP4 (SMP, 2+ CPUs). The Windows 2000 kernel loads and runs the XP HAL without issues.
+KDTransport includes a dedicated, isolated patcher for the **Windows XP ACPI Multiprocessor HAL (`NT 5.1 HALMACPI.DLL`)**, in addition to all Windows 2000 SP4 HAL variants (`hal.dll`, `halaacpi.dll`, `halacpi.dll`, `halapic.dll`, `halmacpi_original.dll`, `halmps.dll`).
 
 ### XP HAL-Specific Fixup
 The only XP HAL-specific fixup needed for patching is in `KdPortInitialize`: the XP HAL reuses register `EBX` as scratch for `HalpGetResourceSortValue`, so `LoaderBlock` is no longer available in `EBX` at the `CpInitialize` call site. The dedicated patcher [`patcher/patch_xp_hal.py`](file:///patcher/patch_xp_hal.py) rewrites `KdpTransportInitOverride` to read `LoaderBlock` directly from the caller's stack frame `[caller_ebp + 0x0C]` (`mov eax, [ebp]; mov eax, [eax + 0x0C]`). Everything else — PE layout handling, symbol resolution, checksum recomputation — is standard patching already supported by `kdpatch.py`.
 
-### Patching the Windows XP HAL
+### Running the XP HAL Patcher
 To patch an authentic Windows XP `HALMACPI.DLL` with zero impact on the Windows 2000 codebase:
 ```cmd
 python patcher\patch_xp_hal.py "C:\HAL variants\2000 NT5.1\HALMACPI.DLL" build\obj\i386\kdtransport.lib build\patched_variants\nt51_HALMACPI.DLL
@@ -553,7 +553,7 @@ Preconfigured one-click desktop launchers are provided in the repository root:
 
 ## Multi-HAL Support & Validation Matrix
 
-KDTransport provides full multi-HAL compatibility, verified across all authentic Windows 2000 SP4 HAL variants and the Windows XP ACPI Multiprocessor HAL (`NT 5.1 HALMACPI.DLL`):
+KDTransport provides full multi-HAL compatibility, verified across all supported HAL variants:
 
 | Variant Binary | Architecture / Description | Target VM & CPUs | KD USB (`/DEBUGPORT=USB`) | KD NET (`/DEBUGPORT=NET`) | Legacy COM (`/DEBUGPORT=COM`) |
 | :--- | :--- | :--- | :---: | :---: | :---: |
