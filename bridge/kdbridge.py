@@ -46,8 +46,8 @@ BROADCAST_MAC = b'\xFF\xFF\xFF\xFF\xFF\xFF'
 # "Host" MAC -- arbitrary, target doesn't filter by dst MAC
 HOST_MAC = b'\x00\x50\x56\xC0\x00\x01'
 
-# Learned target MAC (default to VirtualBox MAC)
-target_mac = bytes.fromhex('0800275AA667')
+# Learned target MAC (None until learned from target, defaults to broadcast)
+target_mac = None
 target_mac_lock = threading.Lock()
 
 
@@ -236,7 +236,7 @@ if sys.platform == 'win32':
 
             if leader == b'iiii':
                 # Control packet (ACK/NAK/RESEND/RESET): EXACTLY 16 bytes, NO trailing 0xAA!
-                while len(pipe_rx_buffer) < 16 and (time.perf_counter() - start_t) < 0.15:
+                while len(pipe_rx_buffer) < 16 and (time.perf_counter() - start_t) < 1.0:
                     if not pull_available(handle):
                         return None
                     if len(pipe_rx_buffer) < 16:
@@ -246,10 +246,12 @@ if sys.platform == 'win32':
                     res = bytes(pipe_rx_buffer[:16])
                     del pipe_rx_buffer[:16]
                     return res
+                else:
+                    return b''  # Keep waiting for complete control packet
 
             elif leader in (b'0000', b'ssss'):
                 # Data packet: 16 bytes header + ByteCount payload + 1 byte (0xAA)
-                while len(pipe_rx_buffer) < 8 and (time.perf_counter() - start_t) < 0.10:
+                while len(pipe_rx_buffer) < 8 and (time.perf_counter() - start_t) < 1.0:
                     if not pull_available(handle):
                         return None
                     if len(pipe_rx_buffer) < 8:
@@ -259,7 +261,7 @@ if sys.platform == 'win32':
                     payload_len = struct.unpack('<H', pipe_rx_buffer[6:8])[0]
                     total_len = 16 + payload_len + 1  # 16-byte header + payload + 0xAA
 
-                    while len(pipe_rx_buffer) < total_len and (time.perf_counter() - start_t) < 0.25:
+                    while len(pipe_rx_buffer) < total_len and (time.perf_counter() - start_t) < 2.0:
                         if not pull_available(handle):
                             return None
                         if len(pipe_rx_buffer) < total_len:
@@ -269,6 +271,8 @@ if sys.platform == 'win32':
                         res = bytes(pipe_rx_buffer[:total_len])
                         del pipe_rx_buffer[:total_len]
                         return res
+                    else:
+                        return b''  # Keep waiting for complete data packet
 
         # Otherwise, brief coalesce (2ms) so 1-byte writes get batched together
         start_t = time.perf_counter()

@@ -43,6 +43,8 @@ Traditionally, Windows 2000 only supported kernel debugging through legacy 11520
   - [Physical Bare-Metal Hardware Setup](#physical-bare-metal-hardware-setup)
   - [Connecting WinDbg (`run_windbg_usb.cmd`)](#connecting-windbg-run_windbg_usbcmd)
 - [Physical Hardware Setup: Realtek RTL8168 PCIe NIC](#physical-hardware-setup-realtek-rtl8168-pcie-nic)
+- [Windows XP HAL (NT 5.1 HALMACPI.DLL) on Windows 2000](#windows-xp-hal-nt-51-halmacpidll-on-windows-2000)
+- [Multi-HAL Support & Validation Matrix](#multi-hal-support--validation-matrix)
 - [Building & Patching from Source](#building--patching-from-source)
 - [Git & Contribution Setup](#git--contribution-setup)
 - [Repository Structure](#repository-structure)
@@ -525,6 +527,56 @@ KDTransport is fully verified for bare-metal debugging over PCIe Ethernet:
 5. **Attach WinDbg:** Connect WinDbg to `\\.\pipe\KdNet` as usual.
 
 ---
+
+## Windows XP HAL (NT 5.1 HALMACPI.DLL) on Windows 2000
+
+In addition to supporting all 6 authentic Windows 2000 SP4 HAL variants (`hal.dll`, `halaacpi.dll`, `halacpi.dll`, `halapic.dll`, `halmacpi_original.dll`, `halmps.dll`), KDTransport includes dedicated, isolated support for booting and debugging the **Windows XP ACPI Multiprocessor HAL (`NT 5.1 HALMACPI.DLL`)** on Windows 2000 Professional SP4 (SMP, 2+ CPUs). The Windows 2000 kernel loads and runs the XP HAL without issues.
+
+### XP HAL-Specific Fixup
+The only XP HAL-specific fixup needed for patching is in `KdPortInitialize`: the XP HAL reuses register `EBX` as scratch for `HalpGetResourceSortValue`, so `LoaderBlock` is no longer available in `EBX` at the `CpInitialize` call site. The dedicated patcher [`patcher/patch_xp_hal.py`](file:///patcher/patch_xp_hal.py) rewrites `KdpTransportInitOverride` to read `LoaderBlock` directly from the caller's stack frame `[caller_ebp + 0x0C]` (`mov eax, [ebp]; mov eax, [eax + 0x0C]`). Everything else — PE layout handling, symbol resolution, checksum recomputation — is standard patching already supported by `kdpatch.py`.
+
+### Patching the Windows XP HAL
+To patch an authentic Windows XP `HALMACPI.DLL` with zero impact on the Windows 2000 codebase:
+```cmd
+python patcher\patch_xp_hal.py "C:\HAL variants\2000 NT5.1\HALMACPI.DLL" build\obj\i386\kdtransport.lib build\patched_variants\nt51_HALMACPI.DLL
+```
+
+### Launching WinDbg Sessions for XP HAL on Windows 2000
+Preconfigured one-click desktop launchers are provided in the repository root:
+- **Classic WinDbg GUI:** [`launch_xphal_windbg.cmd`](file:///launch_xphal_windbg.cmd)
+- **Modern WinDbgX:** [`launch_xphal_windbgx.cmd`](file:///launch_xphal_windbgx.cmd)
+
+> [!NOTE]
+> Under QEMU EHCI USB software emulation (`accel=tcg`), the USB 2.0 transaction handshake during initial boot requires polling MMIO loops. The initial connection and first breakpoint take 1–2 minutes to stream all USB handshake packets. Please wait for the initial break to complete.
+
+---
+
+## Multi-HAL Support & Validation Matrix
+
+KDTransport provides full multi-HAL compatibility, verified across all authentic Windows 2000 SP4 HAL variants and the Windows XP ACPI Multiprocessor HAL (`NT 5.1 HALMACPI.DLL`):
+
+| Variant Binary | Architecture / Description | Target VM & CPUs | KD USB (`/DEBUGPORT=USB`) | KD NET (`/DEBUGPORT=NET`) | Legacy COM (`/DEBUGPORT=COM`) |
+| :--- | :--- | :--- | :---: | :---: | :---: |
+| **`halmacpi_original.dll`** | ACPI Multiprocessor PC (W2K SP4 Rollup) | 2-CPU SMP (`win2000-pro-sp4.img`) | **PASSED** | **PASSED** (~2s) | **PASSED** (~4s) |
+| **`nt51_HALMACPI.DLL`** | Windows XP ACPI Multiprocessor (NT 5.1) | 2-CPU SMP (`win2000-pro-sp4.img`) | **PASSED** | **PASSED** (~2s) | **PASSED** (~4s) |
+| **`halmps.dll`** | MPS Multiprocessor PC (Non-ACPI) | 2-CPU SMP (`win2000-pro-sp4.img`) | **PASSED** | **PASSED** (~2s) | **PASSED** (~4s) |
+| **`halaacpi.dll`** | ACPI APIC PC (Uniprocessor) | 1-CPU (`win2000-1cpu.img`) | **PASSED** | **PASSED** (~2s) | **PASSED** (~4s) |
+| **`halacpi.dll`** | ACPI PIC PC (Uniprocessor) | 1-CPU (`win2000-1cpu.img`) | **PASSED** | **PASSED** (~2s) | **PASSED** (~4s) |
+| **`hal.dll`** | Standard PC (PIC Uniprocessor) | 1-CPU (`win2000-1cpu.img`) | **PASSED** | **PASSED** (~2s) | **PASSED** (~4s) |
+| **`halapic.dll`** | MPS APIC PC (Uniprocessor Non-ACPI) | 1-CPU (`win2000-1cpu.img`) | **PASSED** | **PASSED** (~2s) | **PASSED** (~4s) |
+
+*(Note: `halsp.dll` requires proprietary Compaq SystemPro EISA motherboard hardware, not present in standard PC virtualization).*
+
+### Desktop Launchers
+Ready-to-use launch scripts are provided in the repository root for both Classic WinDbg and Modern WinDbgX:
+- **Windows XP HAL (2-CPU SMP):**
+  - Classic WinDbg: [`launch_xphal_windbg.cmd`](file:///launch_xphal_windbg.cmd)
+  - Modern WinDbgX: [`launch_xphal_windbgx.cmd`](file:///launch_xphal_windbgx.cmd)
+- **Windows 2000 ACPI APIC (1-CPU):**
+  - Classic WinDbg: [`launch_1cpu_windbg.cmd`](file:///launch_1cpu_windbg.cmd)
+  - Modern WinDbgX: [`launch_1cpu_windbgx.cmd`](file:///launch_1cpu_windbgx.cmd)
+- **All USB Debugging:**
+  - Launch helper: [`launch_all_usb_debug.cmd`](file:///launch_all_usb_debug.cmd)
 
 ## Building & Patching from Source
 

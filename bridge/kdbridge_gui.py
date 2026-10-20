@@ -58,7 +58,7 @@ class KdBridgeEngine:
         self.host = '127.0.0.1'
         self.pipe_name = r'\\.\pipe\KdNet'
         
-        self.target_mac = bytes.fromhex('0800275AA667')
+        self.target_mac = None
         self.target_mac_lock = threading.Lock()
         
         self.running = False
@@ -217,7 +217,7 @@ class KdBridgeEngine:
             leader = bytes(self.pipe_rx_buffer[:4])
             start_t = time.perf_counter()
             if leader == b'iiii':
-                while len(self.pipe_rx_buffer) < 16 and (time.perf_counter() - start_t) < 0.15:
+                while len(self.pipe_rx_buffer) < 16 and (time.perf_counter() - start_t) < 1.0:
                     if not self.pull_available():
                         return None
                     if len(self.pipe_rx_buffer) < 16:
@@ -226,8 +226,10 @@ class KdBridgeEngine:
                     res = bytes(self.pipe_rx_buffer[:16])
                     del self.pipe_rx_buffer[:16]
                     return res
+                else:
+                    return b''  # Keep waiting for complete control packet
             elif leader in (b'0000', b'ssss'):
-                while len(self.pipe_rx_buffer) < 8 and (time.perf_counter() - start_t) < 0.10:
+                while len(self.pipe_rx_buffer) < 8 and (time.perf_counter() - start_t) < 1.0:
                     if not self.pull_available():
                         return None
                     if len(self.pipe_rx_buffer) < 8:
@@ -235,7 +237,7 @@ class KdBridgeEngine:
                 if len(self.pipe_rx_buffer) >= 8:
                     payload_len = struct.unpack('<H', self.pipe_rx_buffer[6:8])[0]
                     total_len = 16 + payload_len + 1
-                    while len(self.pipe_rx_buffer) < total_len and (time.perf_counter() - start_t) < 0.25:
+                    while len(self.pipe_rx_buffer) < total_len and (time.perf_counter() - start_t) < 2.0:
                         if not self.pull_available():
                             return None
                         if len(self.pipe_rx_buffer) < total_len:
@@ -244,6 +246,8 @@ class KdBridgeEngine:
                         res = bytes(self.pipe_rx_buffer[:total_len])
                         del self.pipe_rx_buffer[:total_len]
                         return res
+                    else:
+                        return b''  # Keep waiting for complete data packet
 
         start_t = time.perf_counter()
         while (time.perf_counter() - start_t) < 0.003:

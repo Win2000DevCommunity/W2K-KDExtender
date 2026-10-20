@@ -380,12 +380,13 @@ class NtfsVolume:
                 if non_res == 0:
                     content_off = struct.unpack_from('<H', raw_record, off + 0x14)[0]
                     content_len = struct.unpack_from('<I', raw_record, off + 0x10)[0]
-                    if len(new_data) > content_len:
+                    max_capacity = attr_len - content_off
+                    if len(new_data) > max_capacity:
                         raise ValueError(f"New data ({len(new_data)}) exceeds resident "
-                                       f"attribute capacity ({content_len})")
+                                       f"attribute capacity ({max_capacity})")
                     abs_content_off = off + content_off
-                    # Zero out old content
-                    raw_record[abs_content_off:abs_content_off + content_len] = b'\x00' * content_len
+                    # Zero out old content up to max capacity
+                    raw_record[abs_content_off:abs_content_off + max_capacity] = b'\x00' * max_capacity
                     # Write new content
                     raw_record[abs_content_off:abs_content_off + len(new_data)] = new_data
                     # Update content length

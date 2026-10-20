@@ -57,9 +57,33 @@ test2_*.png
 
 # Log files (test session outputs)
 kd_*.log
-windbg_classic.log
+windbg_*.log
+bridge_run.log
+test_*_run*.log
+kdnet_*.log
+kd_captured_stdout.txt
+kd_cmds.txt
+run_cmds.txt
 
-# HAL backup dumps
+# Screenshots & screen captures (test artifacts)
+*.ppm
+boot_*.png
+screen_*.png
+newvm_screen.png
+classic_wb_*.png
+windbgx_*.png
+test1_*.png
+test2_*.png
+kdnet_boot_*.png
+xp_*.png
+vm_*.png
+qmp_screen.png
+live_user_screen.png
+test_*.png
+
+# Variant build outputs
+build/patched_variants/
+build/all_patched_variants/
 backup_hal_*.bin
 
 # Test & debug Python scripts (not part of core package)
