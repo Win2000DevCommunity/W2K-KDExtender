@@ -569,6 +569,9 @@ KDTransport provides full multi-HAL compatibility, verified across all supported
 
 ### Desktop Launchers
 Ready-to-use launch scripts are provided in the repository root for both Classic WinDbg and Modern WinDbgX:
+- **Windows 2000 ACPI Multiprocessor (2-CPU SMP):**
+  - Classic WinDbg: [`launch_w2k_smp_windbg.cmd`](file:///launch_w2k_smp_windbg.cmd)
+  - Modern WinDbgX: [`launch_w2k_smp_windbgx.cmd`](file:///launch_w2k_smp_windbgx.cmd)
 - **Windows XP HAL (2-CPU SMP):**
   - Classic WinDbg: [`launch_xphal_windbg.cmd`](file:///launch_xphal_windbg.cmd)
   - Modern WinDbgX: [`launch_xphal_windbgx.cmd`](file:///launch_xphal_windbgx.cmd)
